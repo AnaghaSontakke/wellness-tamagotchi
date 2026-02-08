@@ -1,6 +1,7 @@
 
 import { GoogleGenAI } from "@google/genai";
 import { BuddyType } from "../types";
+import { Mistral } from '@mistralai/mistralai';
 
 const STORY_CONTEXT = `
 Stage 0: Shipwreck. Survival depends on O2, food, water. Mr. Martian is staying calm.
@@ -33,19 +34,28 @@ export const generateBuddyResponse = async (
   buddy: BuddyType,
   history: string[] = []
 ): Promise<string> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  // const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: message,
-      config: {
-        systemInstruction: getSystemInstruction(buddy),
+    // const response = await ai.models.generateContent({
+    //   model: 'gemini-3-flash-preview',
+    //   contents: message,
+    //   config: {
+    //     systemInstruction: getSystemInstruction(buddy),
+    //     temperature: 0.7,
+    //   }
+    // });
+    process.env.API_KEY = "Iie47XcX9vBRCVx8nEAyMusWSnM7qwLj"
+    const client = new Mistral({apiKey: process.env.API_KEY});
+    const response = await client.chat.complete({
+        model: "mistral-large-latest",
+        messages: [{ role: 'system', content: getSystemInstruction(buddy) },{ role: 'user', content: message }],
         temperature: 0.7,
-      }
     });
+    const data = response.choices[0].message.content
+    console.log(data)
 
-    return response.text || "Static on the comms line... (no response)";
+    return data || "Static on the comms line... (no response)";
   } catch (error) {
     console.error("Gemini API Error:", error);
     return "The Martian atmosphere is interfering with comms... (Error)";

@@ -3,49 +3,13 @@ import React, { useState, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useGame } from '../GameContext';
 import { ShopItem, Goal, BuddyType } from '../types';
+import BuddyAnimation from './BuddyAnimation';
 
-// Asset definitions for characters with stage-specific variations
-const BUDDY_ASSETS: Record<BuddyType, { default: string, stages: Record<number, { good: string, bad: string }> }> = {
-  astronaut: {
-    // Happy/Default
-    default: "Assets/Base_characters/astronaut.png",
-    stages: {
-      0: { 
-        good: "Assets/day_outcomes/astronaut/day1_good.png", 
-        // Sad/Broken
-        bad: "Assets/day_outcomes/astronaut/day1_bad.png", 
-      },
-      // Using generic logic for other stages until specific URLs are fully confirmed, but mapping logic is ready
-      1: { 
-        good: "Assets/day_outcomes/astronaut/day2_good.png", 
-        // Sad/Broken
-        bad: "Assets/day_outcomes/astronaut/day2_bad.png", 
-      },
-      2: { 
-        good: "Assets/day_outcomes/astronaut/day3_good.png", 
-        // Sad/Broken
-        bad: "Assets/day_outcomes/astronaut/day3_bad.png", 
-      },
-      3: { 
-        good: "Assets/day_outcomes/astronaut/day4_good.png", 
-        // Sad/Broken
-        bad: "Assets/day_outcomes/astronaut/day4_bad.png", 
-      },
-      4: { 
-        good: "Assets/day_outcomes/astronaut/day5_good.png", 
-        // Sad/Broken
-        bad: "Assets/day_outcomes/astronaut/day5_bad.png", 
-      }
-    }
-  },
-  dracula: {
-    default: "Assets/Base_characters/dracula.png",
-    stages: {} 
-  },
-  princess: {
-    default: "Assets/Base_characters/princess.png",
-    stages: {}
-  }
+// Asset definitions for fallback static images (kept for game over screen)
+const DEFAULT_BUDDY_IMAGE: Record<BuddyType, string> = {
+  astronaut: "Assets/Base_characters/astronaut.png",
+  dracula: "Assets/Base_characters/dracula.png",
+  princess: "Assets/Base_characters/princess.png"
 };
 
 export default function Dashboard() {
@@ -60,6 +24,7 @@ export default function Dashboard() {
   const [showShopSuccess, setShowShopSuccess] = useState(false);
   const [flyingCoins, setFlyingCoins] = useState<{id: number, x: number, y: number}[]>([]);
   const [isPoking, setIsPoking] = useState(false);
+  const [triggerEating, setTriggerEating] = useState(false);
   const coinCounterRef = useRef<HTMLDivElement>(null);
 
   // Shop Items with specific effects on Health and Mood
@@ -88,12 +53,20 @@ export default function Dashboard() {
   const handleBuy = (item: ShopItem) => {
     const success = buyItem(item);
     if (success) {
+      // Trigger eating animation
+      setTriggerEating(true);
+      playSound('eating');
+      
       setShowShopSuccess(true);
       setTimeout(() => setShowShopSuccess(false), 2000);
     } else {
       playSound('sad');
       alert("Not enough diamonds!");
     }
+  };
+
+  const handleEatingComplete = () => {
+    setTriggerEating(false);
   };
 
   const handlePoke = () => {
@@ -143,40 +116,6 @@ export default function Dashboard() {
     navigate('/');
   };
 
-  const getBuddyImage = () => {
-    // 1. Determine State (Good/Bad) based on health/happiness
-    const isBadState = health < 40 || happiness < 40;
-
-    // 2. Fetch asset based on Stage
-    const buddyData = BUDDY_ASSETS[buddy];
-    let imgUrl = buddyData.default;
-
-    // Try to find stage specific image
-    if (buddyData.stages[storyStage]) {
-      imgUrl = isBadState ? buddyData.stages[storyStage].bad : buddyData.stages[storyStage].good;
-    } else if (isBadState && buddyData.stages[0]) {
-       // Fallback to generic "bad" if stage specific not found
-       imgUrl = buddyData.stages[0].bad;
-    }
-
-    return imgUrl;
-  };
-
-  // Dynamic filters for characters if we are reusing the astronaut asset for others
-  const getBuddyStyle = () => {
-    if (buddy === 'dracula') return { filter: 'hue-rotate(260deg) contrast(1.1)' };
-    if (buddy === 'princess') return { filter: 'hue-rotate(300deg) saturate(1.2)' };
-    
-    // For Astronaut, add effects for bad state if using default image
-    if (health < 20 || happiness < 20) {
-        return { filter: 'grayscale(0.8) contrast(1.3) brightness(0.8) sepia(0.3)' }; // Critical look
-    }
-    if (health < 40 || happiness < 40) {
-        return { filter: 'grayscale(0.6) contrast(1.2) brightness(0.95)' };
-    }
-    return {};
-  };
-
   if (isGameOver) {
       return (
         <div className="bg-black/90 min-h-screen flex flex-col items-center justify-center text-white p-6 relative overflow-hidden font-mono z-50">
@@ -188,7 +127,7 @@ export default function Dashboard() {
                     Vital signs reached critical levels. Communication with the base has been lost.
                 </p>
                 <div className="w-32 h-32 bg-gray-800 rounded-full flex items-center justify-center overflow-hidden border-4 border-red-500/50 mb-4 opacity-50 grayscale">
-                    <img src={BUDDY_ASSETS[buddy].default} alt="Lost Buddy" className="w-full h-full object-contain" />
+                    <img src={DEFAULT_BUDDY_IMAGE[buddy]} alt="Lost Buddy" className="w-full h-full object-contain" />
                 </div>
                 <button 
                     onClick={resetGame}
@@ -282,24 +221,21 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Character Blob */}
-          <div 
-            onClick={handlePoke}
-            className={`relative w-64 h-64 flex items-center justify-center animate-float mx-auto cursor-pointer transition-transform duration-150 ${isPoking ? 'scale-90 rotate-3' : 'scale-100 rotate-0'}`}
-          >
-            <div className="relative w-full h-full flex items-center justify-center">
-                 <img 
-                    src={getBuddyImage()} 
-                    alt="Tamagotchi"
-                    style={getBuddyStyle()}
-                    className={`w-full h-full object-contain drop-shadow-2xl transition-all duration-500 ${isPoking ? 'brightness-125' : ''} ${health < 20 || happiness < 20 ? 'animate-pulse' : ''}`}
-                 />
-                 {storyStage > 0 && (
-                   <div className="absolute -bottom-2 px-3 py-1 bg-primary text-white text-[10px] rounded-full font-bold uppercase tracking-widest animate-pulse shadow-md">
-                      Stage {storyStage}
-                   </div>
-                 )}
-            </div>
+          {/* Character Blob with Animation */}
+          <div onClick={handlePoke} className="relative">
+            <BuddyAnimation
+              buddy={buddy}
+              health={health}
+              happiness={happiness}
+              isPoking={isPoking}
+              triggerEating={triggerEating}
+              onEatingComplete={handleEatingComplete}
+            />
+            {storyStage > 0 && (
+              <div className="absolute left-1/2 -translate-x-1/2 -bottom-2 px-3 py-1 bg-primary text-white text-[10px] rounded-full font-bold uppercase tracking-widest animate-pulse shadow-md">
+                Stage {storyStage}
+              </div>
+            )}
           </div>
 
           {/* Health Bar */}
