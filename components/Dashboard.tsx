@@ -15,7 +15,7 @@ const DEFAULT_BUDDY_IMAGE: Record<BuddyType, string> = {
 export default function Dashboard() {
   const navigate = useNavigate();
   const { 
-    coins, happiness, health, activeGoals, completedGoals, storyStage, isGameOver,
+    coins, happiness, health, activeGoals, completedGoals, storyStage, day, isGameOver,
     buyItem, completeGoal, updateGoalProgress, collectReward, 
     currentThought, resetGame, playSound, triggerThought, buddy,
     chatHistory
@@ -190,9 +190,15 @@ export default function Dashboard() {
           <span className="material-symbols-outlined text-2xl">chat_bubble</span>
           {chatHistory.length > 0 && <span className="absolute top-0 right-0 w-3 h-3 bg-red-500 rounded-full border-2 border-white"></span>}
         </button>
-        <div ref={coinCounterRef} className="flex items-center space-x-2 bg-white px-5 py-2.5 rounded-full shadow-soft hover:scale-105 transition-transform">
-          <span className="material-symbols-outlined text-accent-yellow fill-1">diamond</span>
-          <span className="font-bold text-black text-lg">{Math.floor(coins)}</span>
+        <div className="flex items-center space-x-3">
+          <div className="flex items-center space-x-2 bg-white px-4 py-2.5 rounded-full shadow-soft hover:scale-105 transition-transform">
+            <span className="material-symbols-outlined text-blue-500 fill-1 text-lg">calendar_today</span>
+            <span className="font-bold text-black text-sm">Day {day}</span>
+          </div>
+          <div ref={coinCounterRef} className="flex items-center space-x-2 bg-white px-5 py-2.5 rounded-full shadow-soft hover:scale-105 transition-transform">
+            <span className="material-symbols-outlined text-accent-yellow fill-1">diamond</span>
+            <span className="font-bold text-black text-lg">{Math.floor(coins)}</span>
+          </div>
         </div>
       </header>
 

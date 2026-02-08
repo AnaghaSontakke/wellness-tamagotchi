@@ -1,12 +1,20 @@
 import React, { createContext, useContext, useState, PropsWithChildren, useCallback, useEffect, useRef } from 'react';
 import { BuddyType, Goal, ShopItem, ChatMessage, JournalEntry } from './types';
 
+// ===== DEVELOPMENT CONFIGURATION =====
+// Set to true for 1-minute day cycles (development)
+// Set to false for 24-hour day cycles at midnight UTC (production)
+const DEV_MODE = true;
+const DAY_CYCLE_MS = DEV_MODE ? 60 * 1000 : 24 * 60 * 60 * 1000; // 1 minute or 24 hours
+// ====================================
+
 interface GameState {
   coins: number;
   buddy: BuddyType;
   happiness: number;
   health: number;
   storyStage: number;
+  day: number;
   isGameOver: boolean;
   activeGoals: Goal[];
   completedGoals: Goal[];
@@ -49,6 +57,7 @@ export const GameProvider: React.FC<PropsWithChildren> = ({ children }) => {
   const [happiness, setHappiness] = useState(100); 
   const [health, setHealth] = useState(100); 
   const [storyStage, setStoryStage] = useState(0);
+  const [day, setDay] = useState(1);
   const [isGameOver, setIsGameOver] = useState(false);
   const [activeGoals, setActiveGoals] = useState<Goal[]>(defaultGoals);
   const [completedGoals, setCompletedGoals] = useState<Goal[]>([]);
@@ -60,91 +69,9 @@ export const GameProvider: React.FC<PropsWithChildren> = ({ children }) => {
   const lastPurchaseRef = useRef<string | null>(null);
   const lastThoughtRef = useRef<string>(currentThought);
   const panicIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastDayRef = useRef<number>(1);
 
-  // Auto-progress story based on goals completed
-  useEffect(() => {
-    if (isGameOver) return;
-    const stage = Math.min(Math.floor(completedGoals.length / 3), 4);
-    if (stage > storyStage) {
-      setStoryStage(stage);
-      triggerThought(STORY_BEATS[stage]);
-      // Add a journal entry
-      const entry: JournalEntry = {
-        id: `journal-${Date.now()}`,
-        date: new Date(),
-        content: `Log Entry: ${STORY_BEATS[stage]} Progressing well. Wellness levels: ${Math.floor(health)}HP / ${Math.floor(happiness)}HAP.`,
-        stage: stage
-      };
-      setJournalEntries(prev => [entry, ...prev]);
-    }
-  }, [completedGoals.length, storyStage, health, happiness, isGameOver]);
-
-  useEffect(() => {
-    if (currentThought !== lastThoughtRef.current) {
-      const msg: ChatMessage = {
-        id: `thought-${Date.now()}`,
-        sender: 'system',
-        text: currentThought,
-        timestamp: new Date(),
-        meta: {
-          title: buddy === 'astronaut' ? 'Mr. Martian' : buddy.charAt(0).toUpperCase() + buddy.slice(1),
-          type: health < 30 || happiness < 30 ? 'warning' : 'info'
-        }
-      };
-      setChatHistory(prev => [...prev, msg]);
-      lastThoughtRef.current = currentThought;
-    }
-  }, [currentThought, buddy, health, happiness]);
-
-  // Depletion Logic & Game Over Check
-  useEffect(() => {
-    if (isGameOver) return;
-
-    const interval = setInterval(() => {
-      setHappiness(prev => {
-         const newVal = Math.max(0, prev - 0.8);
-         return newVal;
-      }); 
-      setHealth(prev => {
-         const newVal = Math.max(0, prev - 0.5);
-         return newVal;
-      });
-    }, 2000);
-
-    return () => clearInterval(interval);
-  }, [isGameOver]);
-
-  // Check Game Over State and Trigger Panic Thoughts
-  useEffect(() => {
-    if (isGameOver) return;
-
-    if (health <= 0 && happiness <= 0) {
-        setIsGameOver(true);
-        playSound('alarm');
-        setCurrentThought("CRITICAL FAILURE. SYSTEMS OFFLINE.");
-        const msg: ChatMessage = {
-            id: `sys-fail-${Date.now()}`,
-            sender: 'system',
-            text: "MISSION FAILED. CONTACT LOST.",
-            timestamp: new Date(),
-            meta: { type: 'warning' }
-        };
-        setChatHistory(prev => [...prev, msg]);
-    } else if (health < 20 || happiness < 20) {
-        // Panic Mode
-        if (!panicIntervalRef.current) {
-            panicIntervalRef.current = setInterval(() => {
-                triggerThought(); // Will trigger panic thought
-            }, 10000); // More frequent thoughts
-        }
-    } else {
-        if (panicIntervalRef.current) {
-            clearInterval(panicIntervalRef.current);
-            panicIntervalRef.current = null;
-        }
-    }
-  }, [health, happiness, isGameOver]);
-
+  // Define triggerThought callback early so it can be used in effects
   const triggerThought = useCallback((manualText?: string) => {
     if (isGameOver) return;
     
@@ -184,6 +111,150 @@ export const GameProvider: React.FC<PropsWithChildren> = ({ children }) => {
     }
     setCurrentThought(thought);
   }, [health, happiness, storyStage, isGameOver]);
+
+  // Auto-progress story based on goals completed
+  useEffect(() => {
+    if (isGameOver) return;
+    const stage = Math.min(Math.floor(completedGoals.length / 3), 4);
+    if (stage > storyStage) {
+      setStoryStage(stage);
+      triggerThought(STORY_BEATS[stage]);
+      // Add a journal entry
+      const entry: JournalEntry = {
+        id: `journal-${Date.now()}`,
+        date: new Date(),
+        content: `Log Entry: ${STORY_BEATS[stage]} Progressing well. Wellness levels: ${Math.floor(health)}HP / ${Math.floor(happiness)}HAP.`,
+        stage: stage
+      };
+      setJournalEntries(prev => [entry, ...prev]);
+    }
+  }, [completedGoals.length, storyStage, health, happiness, isGameOver]);
+
+  // Daily cycle progression
+  useEffect(() => {
+    if (isGameOver) return;
+
+    const getTimeUntilNextCycle = (): number => {
+      if (DEV_MODE) {
+        // In dev mode, next cycle is in 1 minute
+        return DAY_CYCLE_MS;
+      } else {
+        // In production, next cycle is at midnight UTC
+        const now = new Date();
+        const tomorrow = new Date(now);
+        tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+        tomorrow.setUTCHours(0, 0, 0, 0);
+        return tomorrow.getTime() - now.getTime();
+      }
+    };
+
+    let timeoutId: ReturnType<typeof setTimeout>;
+
+    const scheduleNextDayCycle = () => {
+      const timeUntilNextCycle = getTimeUntilNextCycle();
+      
+      timeoutId = setTimeout(() => {
+        setDay(prevDay => prevDay + 1);
+        scheduleNextDayCycle();
+      }, timeUntilNextCycle);
+    };
+
+    scheduleNextDayCycle();
+    return () => clearTimeout(timeoutId);
+  }, [isGameOver]);
+
+  // Handle day change events
+  useEffect(() => {
+    if (day === lastDayRef.current) return;
+    
+    lastDayRef.current = day;
+
+    // Trigger daily thought
+    const dailyThoughts = [
+      `Day ${day}: Still here. Still fighting.`,
+      `Day ${day}: The survival routine continues.`,
+      `Day ${day}: Every day brings us closer to rescue.`,
+      `Day ${day}: I can do this. We can do this.`,
+      `Day ${day}: Another day to make a difference.`
+    ];
+    const dailyThought = dailyThoughts[Math.floor(Math.random() * dailyThoughts.length)];
+    triggerThought(dailyThought);
+
+    // Add journal entry for new day with current stage
+    const journalEntry: JournalEntry = {
+      id: `journal-day-${day}-${Date.now()}`,
+      date: new Date(),
+      content: `Day ${day} begins. Current stage: ${storyStage}. Wellness: ${Math.floor(health)}HP / ${Math.floor(happiness)}HAP.`,
+      stage: storyStage
+    };
+    setJournalEntries(prev => [journalEntry, ...prev]);
+  }, [day, storyStage, health, happiness, triggerThought]);
+
+  useEffect(() => {
+    if (currentThought !== lastThoughtRef.current) {
+      const msg: ChatMessage = {
+        id: `thought-${Date.now()}`,
+        sender: 'system',
+        text: currentThought,
+        timestamp: new Date(),
+        meta: {
+          title: buddy === 'astronaut' ? 'Mr. Martian' : buddy.charAt(0).toUpperCase() + buddy.slice(1),
+          type: health < 30 || happiness < 30 ? 'warning' : 'info'
+        }
+      };
+      setChatHistory(prev => [...prev, msg]);
+      lastThoughtRef.current = currentThought;
+    }
+  }, [currentThought, buddy, health, happiness]);
+
+  // Depletion Logic & Game Over Check
+  useEffect(() => {
+    if (isGameOver) return;
+
+    const interval = setInterval(() => {
+      setHappiness(prev => {
+         const newVal = Math.max(0, prev - 5);
+         return newVal;
+      }); 
+      setHealth(prev => {
+         const newVal = Math.max(0, prev - 5);
+         return newVal;
+      });
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [isGameOver]);
+
+  // Check Game Over State and Trigger Panic Thoughts
+  useEffect(() => {
+    if (isGameOver) return;
+
+    if (health <= 0 && happiness <= 0) {
+        setIsGameOver(true);
+        playSound('alarm');
+        setCurrentThought("CRITICAL FAILURE. SYSTEMS OFFLINE.");
+        const msg: ChatMessage = {
+            id: `sys-fail-${Date.now()}`,
+            sender: 'system',
+            text: "MISSION FAILED. CONTACT LOST.",
+            timestamp: new Date(),
+            meta: { type: 'warning' }
+        };
+        setChatHistory(prev => [...prev, msg]);
+    } else if (health < 20 || happiness < 20) {
+        // Panic Mode
+        if (!panicIntervalRef.current) {
+            panicIntervalRef.current = setInterval(() => {
+                triggerThought(); // Will trigger panic thought
+            }, 10000); // More frequent thoughts
+        }
+    } else {
+        if (panicIntervalRef.current) {
+            clearInterval(panicIntervalRef.current);
+            panicIntervalRef.current = null;
+        }
+    }
+  }, [health, happiness, isGameOver]);
 
   const playSound = useCallback((type: 'coin' | 'success' | 'click' | 'purchase' | 'poke' | 'sad' | 'eating' | 'zen' | 'alarm') => {
     try {
@@ -318,6 +389,7 @@ export const GameProvider: React.FC<PropsWithChildren> = ({ children }) => {
       setHappiness(100);
       setHealth(100);
       setStoryStage(0);
+      setDay(1);
       setIsGameOver(false);
       setActiveGoals(defaultGoals);
       setCompletedGoals([]);
@@ -325,11 +397,12 @@ export const GameProvider: React.FC<PropsWithChildren> = ({ children }) => {
       setChatHistory([]);
       setJournalEntries([]);
       setCurrentThought(STORY_BEATS[0]);
+      lastDayRef.current = 1;
   };
 
   return (
     <GameContext.Provider value={{
-      coins, buddy, happiness, health, storyStage, isGameOver, activeGoals, completedGoals, inventory, chatHistory, currentThought, journalEntries,
+      coins, buddy, happiness, health, storyStage, day, isGameOver, activeGoals, completedGoals, inventory, chatHistory, currentThought, journalEntries,
       setBuddy, addGoal, addGoals, completeGoal, updateGoalProgress, collectReward, buyItem, addChatMessage, addCoins, playSound, resetGame, triggerThought
     }}>
       {children}
